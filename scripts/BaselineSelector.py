@@ -13,7 +13,8 @@ from ROOT import TChain, TH1F, TFile, vector, gROOT
 # custom ROOT classes 
 from ROOT import alp, ComposableSelector, CounterOperator, TriggerOperator, JetFilterOperator, BTagFilterOperator, JetPairingOperator, DiJetPlotterOperator
 from ROOT import BaseOperator, EventWriterOperator, IsoMuFilterOperator, MetFilterOperator, JetPlotterOperator, FolderOperator, MiscellPlotterOperator
-from ROOT import ThrustFinderOperator, HemisphereProducerOperator, HemisphereWriterOperator
+from ROOT import ThrustFinderOperator, HemisphereProducerOperator, HemisphereWriterOperator, JEShifterOperator
+
 
 # imports from ../python 
 from Analysis.alp_analysis.alpSamples  import samples
@@ -28,8 +29,10 @@ parser = argparse.ArgumentParser()
 parser.add_argument("-e", "--numEvts", help="number of events", type=int, default='-1')
 parser.add_argument("-s", "--samList", help="sample list", default="")
 parser.add_argument("-t", "--doTrigger", help="apply trigger filter", action='store_true')
+parser.add_argument("--jesUp", help="use JES up", action='store_true')
+parser.add_argument("--jesDown", help="use JES down", action='store_true')
 parser.add_argument("-o", "--oDir", help="output directory", default="/lustre/cmswork/hh/alp_baseSelector/def")
-parser.set_defaults(doTrigger=False)
+parser.set_defaults(doTrigger=False, jesUp=False, jesDown=False)
 args = parser.parse_args()
 
 # exe parameters
@@ -37,14 +40,18 @@ numEvents  =  args.numEvts
 if not args.samList: samList = ['qcd_b']  # list of samples to be processed - append multiple lists
 else: samList = [args.samList]
 trgList   = 'def_2016'
-intLumi_fb = 12.6
+intLumi_fb = 12.6 #36.26 12.6
 
 iDir       = "/lustre/cmswork/hh/alpha_ntuples/"
-ntuplesVer = "v1_20161028"        
+ntuplesVer = "v1_20161028_noJetCut"    #_noJetCut -- 20161028  20161212
 oDir = args.oDir
+if args.jesUp: oDir += "_JESup"
+elif args.jesDown: oDir += "_JESdown"
 
 data_path = "{}/src/Analysis/alp_analysis/data/".format(os.environ["CMSSW_BASE"])
-weights = {'PUWeight', 'GenWeight', 'BTagWeight'}  #weights to be applied 
+btagAlgo  = "pfCombinedInclusiveSecondaryVertexV2BJetTags"
+#btagAlgo  = "pfCombinedMVAV2BJetTags"
+weights   = {'PUWeight', 'GenWeight', 'BTagWeight'}  #weights to be applied 
 # ---------------
 
 if not os.path.exists(oDir): os.mkdir(oDir)
@@ -67,6 +74,7 @@ config = {"eventInfo_branch_name" : "EventInfo",
           #"met_branch_name" : "",
           "genbfromhs_branch_name" : "GenBFromHs",
           "genhs_branch_name" : "GenHs",
+          "tl_genhs_branch_name" : "TL_GenHs",
           "n_gen_events":0,
           "xsec_br" : 0,
           "matcheff": 0,
@@ -132,32 +140,35 @@ for sname in snames:
     #define selectors list
     selector = ComposableSelector(alp.Event)(0, json_str)
     selector.addOperator(BaseOperator(alp.Event)())
+    if args.jesUp: selector.addOperator(JEShifterOperator(alp.Event)(+1))
+    elif args.jesDown: selector.addOperator(JEShifterOperator(alp.Event)(-1))
+
     selector.addOperator(FolderOperator(alp.Event)("base"))
     selector.addOperator(CounterOperator(alp.Event)(w2_v))
+
+    if args.doTrigger:
+        selector.addOperator(FolderOperator(alp.Event)("trigger"))
+        selector.addOperator(TriggerOperator(alp.Event)(trg_names_v))
+        selector.addOperator(CounterOperator(alp.Event)(w2_v))
 
     selector.addOperator(FolderOperator(alp.Event)("acc"))
     selector.addOperator(JetFilterOperator(alp.Event)(2.5, 30., 4))
     selector.addOperator(CounterOperator(alp.Event)(w2_v)) #debug - no bTagWeight?
-    selector.addOperator(JetPlotterOperator(alp.Event)("pfCombinedInclusiveSecondaryVertexV2BJetTags",weights_v))
+    selector.addOperator(JetPlotterOperator(alp.Event)(btagAlgo, weights_v))
 
     selector.addOperator(FolderOperator(alp.Event)("btag"))
-    selector.addOperator(BTagFilterOperator(alp.Event)("pfCombinedInclusiveSecondaryVertexV2BJetTags", 0.800, 4, config["isData"], data_path))
+    selector.addOperator(BTagFilterOperator(alp.Event)(btagAlgo, 0.800, 4, config["isData"], data_path)) #0.800 -- 0.185
     selector.addOperator(CounterOperator(alp.Event)(weights_v))
-    selector.addOperator(JetPlotterOperator(alp.Event)("pfCombinedInclusiveSecondaryVertexV2BJetTags",weights_v))        
+    selector.addOperator(JetPlotterOperator(alp.Event)(btagAlgo, weights_v))        
 
     selector.addOperator(FolderOperator(alp.Event)("pair_"))
     selector.addOperator(JetPairingOperator(alp.Event)(4))
     selector.addOperator(CounterOperator(alp.Event)(weights_v))
 
-    if args.doTrigger:
-        selector.addOperator(FolderOperator(alp.Event)("trigger"))
-        selector.addOperator(TriggerOperator(alp.Event)(trg_names_v))
-        selector.addOperator(CounterOperator(alp.Event)(weights_v))
-
     selector.addOperator(FolderOperator(alp.Event)("pair")) # final tree always in pair folder for simplicity
-    selector.addOperator(JetPlotterOperator(alp.Event)("pfCombinedInclusiveSecondaryVertexV2BJetTags",weights_v))        
+    selector.addOperator(JetPlotterOperator(alp.Event)(btagAlgo, weights_v))        
     selector.addOperator(DiJetPlotterOperator(alp.Event)(weights_v))
-    selector.addOperator(EventWriterOperator(alp.Event)(json_str,weights_v))
+    selector.addOperator(EventWriterOperator(alp.Event)(json_str, weights_v))
     selector.addOperator(ThrustFinderOperator(alp.Event)())
     selector.addOperator(HemisphereProducerOperator(alp.Event)())
     selector.addOperator(HemisphereWriterOperator(alp.Event)())
