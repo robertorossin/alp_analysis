@@ -11,7 +11,7 @@ from glob import glob
 import ROOT
 from ROOT import TChain, TH1F, TFile, vector, gROOT
 # custom ROOT classes 
-from ROOT import alp, ComposableSelector, CounterOperator, TriggerOperator, JetFilterOperator, BTagFilterOperator, JetPairingOperator, DiJetPlotterOperator
+from ROOT import alp, ComposableSelector, CounterOperator, TriggerOperator, TriggerStudiesOperator, JetFilterOperator, BTagFilterOperator, JetPairingOperator, DiJetPlotterOperator
 from ROOT import BaseOperator, EventWriterOperator, IsoMuFilterOperator, MetFilterOperator, JetPlotterOperator, FolderOperator, MiscellPlotterOperator
 from ROOT import ThrustFinderOperator, HemisphereProducerOperator, HemisphereWriterOperator
 
@@ -29,7 +29,8 @@ parser = argparse.ArgumentParser()
 parser.add_argument("-e", "--numEvts", help="number of events", type=int, default='-1')
 parser.add_argument("-s", "--samList", help="sample list", default="")
 parser.add_argument("-v", "--ntuplesVer", help="input sub-folder", default="MC_def_noTrg")
-parser.add_argument("-o", "--oDir", help="output directory", default="/lustre/cmswork/hh/alp_baseSelector/data_def")
+parser.add_argument("-i", "--iDir", help="input directory", default="def_cmva_notrg") 
+parser.add_argument("-o", "--oDir", help="output directory", default="test")
 parser.add_argument("--btag", help="which btag algo", default='cmva')
 args = parser.parse_args()
 
@@ -40,9 +41,8 @@ else: samList = [args.samList]
 trgList   = 'def_2016'
 intLumi_fb = 12.6
 
-iDir       = "./output/" #"/lustre/cmswork/hh/alpha_ntuples/"
-ntuplesVer = args.ntuplesVer
-oDir = args.oDir
+iDir = "/lustre/cmswork/hh/alp_moriond_base/" + args.iDir
+oDir = '/lustre/cmswork/hh/alp_moriond_base/' + args.oDir
 
 data_path = "{}/src/Analysis/alp_analysis/data/".format(os.environ["CMSSW_BASE"])
 weights = {'PUWeight', 'GenWeight', 'BTagWeight'}  #weights to be applied
@@ -81,7 +81,9 @@ config = {"eventInfo_branch_name" : "EventInfo",
           "matcheff": 0,
           "kfactor" : 0,
           "isData" : False,
+                    "isSignal" : False,
           "lumiFb" : intLumi_fb,
+          "isMixed" : False,
          }
 
 snames = []
@@ -92,7 +94,7 @@ for s in samList:
 ns = 0
 for sname in snames:
     #get file names in all sub-folders:
-    reg_exp = iDir+ntuplesVer+"/"+sname+".root"
+    reg_exp = iDir+"/"+sname+".root"
     print "reg_exp: {}".format(reg_exp) 
     files = glob(reg_exp)
     print "\n ### processing {}".format(sname)        
@@ -101,7 +103,9 @@ for sname in snames:
     if not files: 
         print "WARNING: files do not exist"
         continue
-    if "Run" in files[0]: config["isData"] = True
+    else:
+        if "Run" in files[0]: config["isData"] = True
+        if "GluGluToHH" in files[0] or "HH4B" in files[0]: config["isSignal"] = True
 
     #read counters to get generated eventsbj
     ngenev = 0
@@ -126,18 +130,18 @@ for sname in snames:
     #define selectors list
     selector = ComposableSelector(alp.Event)(0, json_str)
     selector.addOperator(BaseOperator(alp.Event)())
-    selector.addOperator(CounterOperator(alp.Event)())
+    selector.addOperator(CounterOperator(alp.Event)(weights_v))
 
-    selector.addOperator(TriggerOperator(alp.Event)(trg_names_v))
-    selector.addOperator(CounterOperator(alp.Event)())
+    selector.addOperator(TriggerStudiesOperator(alp.Event)(trg_names_v,weights_v))
+    selector.addOperator(CounterOperator(alp.Event)(weights_v))
 
-    selector.addOperator(FolderOperator(alp.Event)("pair"))
-    selector.addOperator(JetPlotterOperator(alp.Event)(btagAlgo,weights_v))        
-    selector.addOperator(DiJetPlotterOperator(alp.Event)(weights_v))
-    selector.addOperator(EventWriterOperator(alp.Event)(json_str,weights_v))
-    selector.addOperator(ThrustFinderOperator(alp.Event)())
-    selector.addOperator(HemisphereProducerOperator(alp.Event)())
-    selector.addOperator(HemisphereWriterOperator(alp.Event)())
+#     selector.addOperator(FolderOperator(alp.Event)("pair"))
+#     selector.addOperator(JetPlotterOperator(alp.Event)(btagAlgo,weights_v))        
+#     selector.addOperator(DiJetPlotterOperator(alp.Event)(weights_v))
+#     selector.addOperator(EventWriterOperator(alp.Event)(json_str,weights_v))
+#     selector.addOperator(ThrustFinderOperator(alp.Event)())
+#     selector.addOperator(HemisphereProducerOperator(alp.Event)())
+#     selector.addOperator(HemisphereWriterOperator(alp.Event)())
 
     #create tChain and process each files
     tchain = TChain("pair/tree")    

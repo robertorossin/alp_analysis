@@ -6,3 +6,8 @@
 */.ipynb_checkpoints/*
 *__init__.py
 *~
+.autotools
+.cproject
+.project
+.settings/*
+.pydevproject
